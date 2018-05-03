@@ -3,6 +3,8 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv/cv.hpp>
 #include "opencv2/xfeatures2d.hpp"
+#include <chrono>
+#include <cstdlib>
 
 using namespace cv;
 using namespace std;
@@ -11,16 +13,37 @@ std::vector<cv::KeyPoint> MakePoint(cv::Mat frame, cv::Ptr<cv::Feature2D> detect
 std::vector<cv::DMatch> FindBestMatches(std::vector<std::vector<cv::DMatch>> matches, std::vector<std::vector<cv::DMatch>> matches2, std::vector<cv::KeyPoint> ReferencePoints, float ratio);
 void FindPointsToDraw(std::vector<cv::DMatch> BestMatches, std::vector<cv::KeyPoint> Points, cv::Mat image, int CoinSetPoint);
 void drawCoin(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint);
+void DrawGraphics(cv::Mat OutImage);
+bool checkForScore(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint);
+bool timingTracker(int duration);
 
 
 int maxFeatures = 30;
+cv::Mat CoinPicture = cv::imread("../coin.jpeg", cv::IMREAD_UNCHANGED);//original pic of coin
+cv::Mat CoinPictureScaled;//scaled pic of coin
+float scaleFactor = 0.20;
+int score = 0;
+int flag = 0;
+
+using timer = std::chrono::high_resolution_clock;
+
+
 
 
 int main() {
-    cv::VideoCapture input_stream(0);
+    cv::VideoCapture input_stream(1);
     cv::Ptr<cv::Feature2D> detector = cv::xfeatures2d::SURF::create();
     cv::Ptr<cv::Feature2D> BruteForceDetector = cv::xfeatures2d::SURF::create();
     cv::BFMatcher BruteForceMatcher{BruteForceDetector->defaultNorm()};
+
+    cv::Mat ReferenceImage;
+    std::vector<cv::KeyPoint> ReferencePoints;
+    cv::Mat ReferenceFeatures;
+    int CoinPoint;
+    auto lastEvent = timer::now();
+
+
+    cv::resize(CoinPicture, CoinPictureScaled, Size(), scaleFactor, scaleFactor, cv::INTER_LANCZOS4);
 
 
 
@@ -34,10 +57,7 @@ int main() {
     input_stream >> frame;
     frame.copyTo(image);
 
-    cv::Mat ReferenceImage;
-    std::vector<cv::KeyPoint> ReferencePoints;
-    cv::Mat ReferenceFeatures;
-    int CoinPoint;
+
     cv::Mat vis_img;
 
 
@@ -72,6 +92,7 @@ int main() {
             cv::imshow("TheAwsomestAugmentedRealityGame", OutImage);
             //std::vector< cv::Point2f > 	point_ind,
             //cv::KeyPoint::convert(Points, point_ind);
+            DrawGraphics(OutImage);
 
         }
         else{
@@ -88,7 +109,7 @@ int main() {
             std::vector<cv::DMatch> BestMatches = FindBestMatches(matches, matches2, ReferencePoints, ratio);
             FindPointsToDraw(BestMatches, Points, image, CoinPoint);
             cv::drawMatches(ReferenceImage, ReferencePoints, image, Points, BestMatches, vis_img);
-            cv::imshow("DrawMatchesOutput", vis_img);
+            //cv::imshow("DrawMatchesOutput", vis_img);
 
             /*
             std::vector<cv::KeyPoint> matching_pts1;
@@ -97,6 +118,8 @@ int main() {
             */
 
             //trying to show only the match with index 1 in the reference image
+
+            /*
             if (BestMatches.size() > 1) {
                 cv::Point2f pointA = {ReferencePoints[BestMatches[1].queryIdx].pt.x,
                                       ReferencePoints[BestMatches[1].queryIdx].pt.y};
@@ -114,7 +137,7 @@ int main() {
                 cv::imshow("train_idx", imgWithPointB);
                 //"coin point"
 
-            }
+            }*/
 
         }
 
@@ -128,16 +151,23 @@ int main() {
 
         // Trigger detection and saving when space is pressed
         int key = cv::waitKey(30);
-        if (key == ' '){
+        std::chrono::duration timing = lastEvent - timer::now();
+        int count = timing.count() / 60*1000;
+        bool event = timingTracker(count);
+
+        if (key == ' ' || event){
+            lastEvent = timer::now();
             ReferencePoints = MakePoint(GrayImage, detector, 10);;
             ReferenceImage = image.clone();
             BruteForceDetector->compute(GrayImage, ReferencePoints, ReferenceFeatures);
             CoinPoint = 1;
         }
-        else if ( key == 'r'){
+        else if ( key == 'r' || flag == 1){
+            lastEvent = timer::now();
             ReferenceImage = cv::Mat();
             ReferencePoints.clear();
             ReferenceFeatures = cv::Mat();
+            flag = 0;
         }
         else if (key >= 0){
             break;
@@ -222,7 +252,9 @@ void FindPointsToDraw(std::vector<cv::DMatch> BestMatches, std::vector<cv::KeyPo
     for(unsigned int i = 0; i < Points.size(); i++){
         cv::drawKeypoints(image, KeyPointsToDraw, OutImage, cv::Scalar(0,255,0));
     }
+
     drawCoin(image, CoinPoint);
+
 
 }
 
@@ -230,26 +262,81 @@ void FindPointsToDraw(std::vector<cv::DMatch> BestMatches, std::vector<cv::KeyPo
 void drawCoin(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint){
 
     cv::Mat OutImage = image.clone();
-    cv::Mat CoinPicture = cv::imread("../coin.jpeg", cv::IMREAD_UNCHANGED);//original pic of coin
-    cv::Mat CoinPictureScaled;//scaled pic of coin
-
-
     float x, y;
-    float scaleFactor = 0.20;
-    cv::resize(CoinPicture, CoinPictureScaled, Size(), scaleFactor, scaleFactor, cv::INTER_LANCZOS4);
 
+    if(!CoinPoint.empty() && !checkForScore(OutImage, CoinPoint)){
+        x = CoinPoint[0].pt.x;
+        y = CoinPoint[0].pt.y;
+        for(unsigned int j = 0; j < CoinPictureScaled.cols; j++){
+            for(unsigned int i = 0; i < CoinPictureScaled.rows; i++){
+                Vec3b color = CoinPictureScaled.at<Vec3b>(Point(i,j));
+                if((color[0] <= 253) && (color[1] <= 253) && (color[2] <= 253)){
+                    OutImage.at<Vec3b>(Point(i+x-((CoinPictureScaled.rows/2)-1), j+y-((CoinPictureScaled.cols/2)-1))) = color;
+
+                }
+            }
+        }
+        //CoinPictureScaled.copyTo(OutImage(cv::Rect(x,y,CoinPictureScaled.cols, CoinPictureScaled.rows)));
+        //cv::drawKeypoints(image, CoinPoint, OutImage, cv::Scalar(0,0,255));
+
+        DrawGraphics(OutImage);
+    }
+    else{
+        //cv::imshow("TheAwsomestAugmentedRealityGame_noCoinPoint", OutImage);
+        DrawGraphics(OutImage);
+    }
+
+}
+
+void DrawGraphics(cv::Mat OutImage){
+    //Draws the X-sigth at the middle of the OutImage
+
+    int centerX = floor(OutImage.cols/2);
+    int centerY = floor(OutImage.rows/2);
+    int length = 5;
+    std::string scoreText = "Score: " + std::to_string(score);
+
+    cv::line(OutImage, Point(centerX-length, centerY-length), Point(centerX+length, centerY+length), Scalar(255, 0, 0), 2);
+    cv::line(OutImage, Point(centerX-length, centerY+length), Point(centerX+length, centerY-length), Scalar(255, 0, 0), 2);
+    cv::putText(OutImage, scoreText, Point(10, OutImage.rows-2), FONT_HERSHEY_TRIPLEX, 1, Scalar(0, 0, 0), 2, true);
+
+
+    cv::imshow("WithCoinPoint", OutImage);
+}
+
+bool checkForScore(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint){
+
+    cv::Mat OutImage = image.clone();
+    float x, y;
+    int slack = 10;
 
     if(!CoinPoint.empty()){
         x = CoinPoint[0].pt.x;
         y = CoinPoint[0].pt.y;
-        CoinPictureScaled.copyTo(OutImage(cv::Rect(x,y,CoinPictureScaled.cols, CoinPictureScaled.rows)));
-        //cv::drawKeypoints(image, CoinPoint, OutImage, cv::Scalar(0,0,255));
+        int centerX = floor(OutImage.cols/2);
+        int centerY = floor(OutImage.rows/2);
+        if(((centerX > x-slack) && (centerX < x+slack)) && ((centerY > y-slack) && (centerY < y+slack))){
+            flag = 1;
+            score = score + 1;
+            return true;
+        }
+        else{
+            return false;
+        }
+    }
+    return false;
 
-        cv::imshow("WithCoinPoint", OutImage);
+}
+
+bool timingTracker(int duration){
+    int randomNumber = rand() % 10 + 10; //random number between 10 and 20
+
+    if(duration >= randomNumber){
+        return true;
     }
     else{
-        //cv::imshow("TheAwsomestAugmentedRealityGame_noCoinPoint", OutImage);
-        cv::imshow("WithCoinPoint", OutImage);
+        return false;
     }
 
 }
+
