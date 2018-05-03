@@ -230,28 +230,26 @@ void FindPointsToDraw(std::vector<cv::DMatch> BestMatches, std::vector<cv::KeyPo
 void drawCoin(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint){
 
     cv::Mat OutImage = image.clone();
-    cv::Mat CoinPicture = cv::imread("../lion.png", cv::IMREAD_UNCHANGED);//original pic of coin
+    cv::Mat CoinPicture = cv::imread("../coin.jpeg", cv::IMREAD_UNCHANGED);//original pic of coin
     cv::Mat CoinPictureScaled;//scaled pic of coin
 
-    //cv::imshow("coin pic", CoinPicture);
 
     float x, y;
-    float scaleFactor = 0.1;
-    //cv::resize(CoinPicture, CoinPictureScaled, Size(), scaleFactor, scaleFactor, cv::INTER_LANCZOS4);
-    //cv::imwrite("new_image.jpg", CoinPicture);
-    //outimage + coinPicture
+    float scaleFactor = 0.20;
+    cv::resize(CoinPicture, CoinPictureScaled, Size(), scaleFactor, scaleFactor, cv::INTER_LANCZOS4);
+
 
     if(!CoinPoint.empty()){
         x = CoinPoint[0].pt.x;
         y = CoinPoint[0].pt.y;
         CoinPictureScaled.copyTo(OutImage(cv::Rect(x,y,CoinPictureScaled.cols, CoinPictureScaled.rows)));
-        cv::drawKeypoints(image, CoinPoint, OutImage, cv::Scalar(0,0,255));
+        //cv::drawKeypoints(image, CoinPoint, OutImage, cv::Scalar(0,0,255));
 
         cv::imshow("WithCoinPoint", OutImage);
     }
     else{
         //cv::imshow("TheAwsomestAugmentedRealityGame_noCoinPoint", OutImage);
-        cv::imshow("WithCoinPoint", image);
+        cv::imshow("WithCoinPoint", OutImage);
     }
 
 }
