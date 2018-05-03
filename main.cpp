@@ -8,14 +8,12 @@ using namespace cv;
 using namespace std;
 
 std::vector<cv::KeyPoint> MakePoint(cv::Mat frame, cv::Ptr<cv::Feature2D> detector, int maxFeatures);
-std::vector<cv::DMatch> FindBestMatches(std::vector<std::vector<cv::DMatch>> matches, float ratio);
+std::vector<cv::DMatch> FindBestMatches(std::vector<std::vector<cv::DMatch>> matches, std::vector<std::vector<cv::DMatch>> matches2, std::vector<cv::KeyPoint> ReferencePoints, float ratio);
 void FindPointsToDraw(std::vector<cv::DMatch> BestMatches, std::vector<cv::KeyPoint> Points, cv::Mat image, int CoinSetPoint);
+cv::Mat drawCoin(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint);
 
-void extractMatchingPoints(const std::vector<cv::KeyPoint>& keypts1, const std::vector<cv::KeyPoint>& keypts2,
-                                const std::vector<cv::DMatch>& matches, std::vector<cv::KeyPoint>& matched_pts1,
-                           std::vector<cv::KeyPoint>& matched_pts2);
 
-int maxFeatures = 2;
+int maxFeatures = 30;
 
 
 int main() {
@@ -78,15 +76,18 @@ int main() {
         }
         else{
             std::vector<std::vector<cv::DMatch>> matches;
+            std::vector<std::vector<cv::DMatch>> matches2;
 
+            int numberOfN = 2;
             // current and reference features have to be the same size!!
-            BruteForceMatcher.knnMatch(CurrentFeatures, ReferenceFeatures, matches, 2);
+            BruteForceMatcher.knnMatch(ReferenceFeatures, CurrentFeatures, matches, numberOfN);
+            BruteForceMatcher.knnMatch(CurrentFeatures, ReferenceFeatures, matches2, numberOfN);
             float ratio = 0.7;
 
             // show the current matches between ref.img and current image frame
-            std::vector<cv::DMatch> BestMatches = FindBestMatches(matches, ratio);
+            std::vector<cv::DMatch> BestMatches = FindBestMatches(matches, matches2, ReferencePoints, ratio);
             FindPointsToDraw(BestMatches, Points, image, CoinPoint);
-            cv::drawMatches(image, Points, ReferenceImage, ReferencePoints, BestMatches, vis_img);
+            cv::drawMatches(ReferenceImage, ReferencePoints, image, Points, BestMatches, vis_img);
             cv::imshow("DrawMatchesOutput", vis_img);
 
             /*
@@ -104,12 +105,16 @@ int main() {
                 cv::circle(imgWithPointA, pointA, 10, cv::Scalar(0, 0, 255));
                 cv::imshow("query_idx", imgWithPointA);
 
-                cv::Point2f pointB = {ReferencePoints[BestMatches[1].trainIdx].pt.x,
-                                      ReferencePoints[BestMatches[1].trainIdx].pt.y};
+                //"coin point"
+                cv::Point2f pointB = {Points[BestMatches[1].trainIdx].pt.x,
+                                      Points[BestMatches[1].trainIdx].pt.y};
                 cv::Mat imgWithPointB;
-                imgWithPointB = ReferenceImage.clone();
+                imgWithPointB = image.clone();
                 cv::circle(imgWithPointB, pointB, 10, cv::Scalar(255, 0, 0));
                 cv::imshow("train_idx", imgWithPointB);
+                //"coin point"
+
+
             }
 
         }
@@ -125,10 +130,10 @@ int main() {
         // Trigger detection and saving when space is pressed
         int key = cv::waitKey(30);
         if (key == ' '){
-            ReferencePoints = MakePoint(GrayImage, detector, 2);;
+            ReferencePoints = MakePoint(GrayImage, detector, 10);;
             ReferenceImage = image.clone();
             BruteForceDetector->compute(GrayImage, ReferencePoints, ReferenceFeatures);
-            CoinPoint = 2;
+            CoinPoint = 1;
         }
         else if ( key == 'r'){
             ReferenceImage = cv::Mat();
@@ -167,17 +172,32 @@ std::vector<cv::KeyPoint> MakePoint(cv::Mat frame, cv::Ptr<cv::Feature2D> detect
     return Keypoints;
 }
 
-std::vector<cv::DMatch> FindBestMatches(std::vector<std::vector<cv::DMatch>> matches, float ratio){
+std::vector<cv::DMatch> FindBestMatches(std::vector<std::vector<cv::DMatch>> matches, std::vector<std::vector<cv::DMatch>> matches2, std::vector<cv::KeyPoint> ReferencePoints, float ratio){
     std::vector<cv::DMatch> BestMatches;
+    std::vector<cv::DMatch> BestMatches2;
+    std::vector<cv::DMatch> BestMatchesBoth;
     //finding the better match from knn matcher
 
-    for(size_t i = 0;i< matches.size() ;i++){
-        if(matches[i][0].distance < (matches[i][1].distance * ratio)){
+    for(size_t i = 0;i< matches.size() ;i++) {
+        //ReferenceFeatures, CurrentFeatures
+        if (matches[i][0].distance < (matches[i][1].distance * ratio)) {
             BestMatches.push_back(matches[i][0]);
         }
-
+        //CurrentFeatures, ReferenceFeatures
+        if (matches2[i][0].distance < (matches2[i][1].distance * ratio)) {
+            BestMatches2.push_back(matches2[i][0]);
+        }
     }
-    return BestMatches;
+        //new vector with only the points we have duplicates of.
+    for(size_t i = 0;i< BestMatches.size() ;i++) {
+        for (size_t j = 0; j < BestMatches2.size(); j++) {
+            if ((ReferencePoints[BestMatches[i].queryIdx].pt.x == ReferencePoints[BestMatches2[j].trainIdx].pt.x) &&
+                (ReferencePoints[BestMatches[i].queryIdx].pt.y == ReferencePoints[BestMatches2[j].trainIdx].pt.y)){
+                BestMatchesBoth.push_back(BestMatches[i]);
+            }
+        }
+    }
+    return BestMatchesBoth;
 
 }
 
@@ -189,42 +209,41 @@ void FindPointsToDraw(std::vector<cv::DMatch> BestMatches, std::vector<cv::KeyPo
     cv::Mat OutImage2;
 
     // imgIdx is not used in this case
-    // queryIdx should correspond to the current img
-    // trainIdx should correspond to the reference img
-    // the indexes of queryIdx and trainIdx are matching, so first match in queryIdx(current img) is also first in trainIdx(reference img)
+    // trainIdx should correspond to the current img
+    // queryIdx should correspond to the reference img
+    // the indexes of queryIdx and trainIdx are matching, so first match in trainIdx(current img) is also first in queryIdx(reference img)
 
     for(size_t i = 0; i < BestMatches.size(); i++){
         KeyPointsToDraw.push_back(Points[BestMatches[i].trainIdx]);
-        //if(BestMatches[i].imgIdx == CoinSetPoint){
-        if (i == 1){
+        if(BestMatches[i].queryIdx == CoinSetPoint){
+        //if (i == 1){
             CoinPoint.push_back(Points[BestMatches[i].trainIdx]);
         }
     }
     for(unsigned int i = 0; i < Points.size(); i++){
         cv::drawKeypoints(image, KeyPointsToDraw, OutImage, cv::Scalar(0,255,0));
     }
-    if(!CoinPoint.empty()){
-        cv::drawKeypoints(OutImage, CoinPoint, OutImage2, cv::Scalar(0,0,255));
-
-        cv::imshow("WithCoinPoint", OutImage2);
-    }
-    else{
-        //cv::imshow("TheAwsomestAugmentedRealityGame_noCoinPoint", OutImage);
-    }
-    cv::imshow("TheAwsomestAugmentedRealityGame_newPoints", OutImage);
-
+    drawCoin(image, CoinPoint);
 
 }
 
 
-void extractMatchingPoints(const std::vector<cv::KeyPoint>& keypts1, const std::vector<cv::KeyPoint>& keypts2,
-                           const std::vector<cv::DMatch>& matches, std::vector<cv::KeyPoint>& matched_pts1,
-                           std::vector<cv::KeyPoint>& matched_pts2)
-{
-    for (size_t i = 0; i < matches.size(); i++){
-        matched_pts1.push_back(keypts1[matches[i].trainIdx]);
-        matched_pts2.push_back(keypts1[matches[i].queryIdx]);
+void drawCoin(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint){
 
+    cv::Mat OutImage;
+    cv::Mat CoinPicture;//resized
+    outimage + coinPicture
+
+    if(!CoinPoint.empty()){
+        cv::drawKeypoints(image, CoinPoint, OutImage, cv::Scalar(0,0,255));
+
+        cv::imshow("WithCoinPoint", OutImage);
     }
+    else{
+        //cv::imshow("TheAwsomestAugmentedRealityGame_noCoinPoint", OutImage);
+        cv::imshow("WithCoinPoint", image);
+    }
+
+
 
 }
