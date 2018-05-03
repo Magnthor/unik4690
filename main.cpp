@@ -10,14 +10,14 @@ using namespace std;
 std::vector<cv::KeyPoint> MakePoint(cv::Mat frame, cv::Ptr<cv::Feature2D> detector, int maxFeatures);
 std::vector<cv::DMatch> FindBestMatches(std::vector<std::vector<cv::DMatch>> matches, std::vector<std::vector<cv::DMatch>> matches2, std::vector<cv::KeyPoint> ReferencePoints, float ratio);
 void FindPointsToDraw(std::vector<cv::DMatch> BestMatches, std::vector<cv::KeyPoint> Points, cv::Mat image, int CoinSetPoint);
-cv::Mat drawCoin(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint);
+void drawCoin(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint);
 
 
 int maxFeatures = 30;
 
 
 int main() {
-    cv::VideoCapture input_stream(1);
+    cv::VideoCapture input_stream(0);
     cv::Ptr<cv::Feature2D> detector = cv::xfeatures2d::SURF::create();
     cv::Ptr<cv::Feature2D> BruteForceDetector = cv::xfeatures2d::SURF::create();
     cv::BFMatcher BruteForceMatcher{BruteForceDetector->defaultNorm()};
@@ -113,7 +113,6 @@ int main() {
                 cv::circle(imgWithPointB, pointB, 10, cv::Scalar(255, 0, 0));
                 cv::imshow("train_idx", imgWithPointB);
                 //"coin point"
-
 
             }
 
@@ -230,11 +229,22 @@ void FindPointsToDraw(std::vector<cv::DMatch> BestMatches, std::vector<cv::KeyPo
 
 void drawCoin(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint){
 
-    cv::Mat OutImage;
-    cv::Mat CoinPicture;//resized
-    outimage + coinPicture
+    cv::Mat OutImage = image.clone();
+    cv::Mat CoinPicture = cv::imread("../lion.png", cv::IMREAD_UNCHANGED);//original pic of coin
+    cv::Mat CoinPictureScaled;//scaled pic of coin
+
+    //cv::imshow("coin pic", CoinPicture);
+
+    float x, y;
+    float scaleFactor = 0.1;
+    //cv::resize(CoinPicture, CoinPictureScaled, Size(), scaleFactor, scaleFactor, cv::INTER_LANCZOS4);
+    //cv::imwrite("new_image.jpg", CoinPicture);
+    //outimage + coinPicture
 
     if(!CoinPoint.empty()){
+        x = CoinPoint[0].pt.x;
+        y = CoinPoint[0].pt.y;
+        CoinPictureScaled.copyTo(OutImage(cv::Rect(x,y,CoinPictureScaled.cols, CoinPictureScaled.rows)));
         cv::drawKeypoints(image, CoinPoint, OutImage, cv::Scalar(0,0,255));
 
         cv::imshow("WithCoinPoint", OutImage);
@@ -243,7 +253,5 @@ void drawCoin(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint){
         //cv::imshow("TheAwsomestAugmentedRealityGame_noCoinPoint", OutImage);
         cv::imshow("WithCoinPoint", image);
     }
-
-
 
 }
