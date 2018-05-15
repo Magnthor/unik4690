@@ -6,6 +6,15 @@
 #include <chrono>
 #include <cstdlib>
 
+
+//TODO LIST:
+// Make sure it doesent crash if it had many features, but loses them all
+//
+//
+//
+//
+//
+
 using namespace cv;
 using namespace std;
 
@@ -15,10 +24,10 @@ void FindPointsToDraw(std::vector<cv::DMatch> BestMatches, std::vector<cv::KeyPo
 void drawCoin(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint);
 void DrawGraphics(cv::Mat OutImage);
 bool checkForScore(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint);
-bool timingTracker(int duration);
+bool timingTracker(long duration);
 
 
-int maxFeatures = 30;
+int maxFeatures = 40;
 cv::Mat CoinPicture = cv::imread("../coin.jpeg", cv::IMREAD_UNCHANGED);//original pic of coin
 cv::Mat CoinPictureScaled;//scaled pic of coin
 float scaleFactor = 0.20;
@@ -40,6 +49,7 @@ int main() {
     std::vector<cv::KeyPoint> ReferencePoints;
     cv::Mat ReferenceFeatures;
     int CoinPoint;
+
     auto lastEvent = timer::now();
 
 
@@ -151,13 +161,13 @@ int main() {
 
         // Trigger detection and saving when space is pressed
         int key = cv::waitKey(30);
-        std::chrono::duration timing = lastEvent - timer::now();
-        int count = timing.count() / 60*1000;
-        bool event = timingTracker(count);
+
+        auto timing = std::chrono::duration_cast<std::chrono::seconds>(timer::now() - lastEvent);
+        bool event = timingTracker(timing.count());
 
         if (key == ' ' || event){
             lastEvent = timer::now();
-            ReferencePoints = MakePoint(GrayImage, detector, 10);;
+            ReferencePoints = MakePoint(GrayImage, detector, 20);;
             ReferenceImage = image.clone();
             BruteForceDetector->compute(GrayImage, ReferencePoints, ReferenceFeatures);
             CoinPoint = 1;
@@ -245,7 +255,6 @@ void FindPointsToDraw(std::vector<cv::DMatch> BestMatches, std::vector<cv::KeyPo
     for(size_t i = 0; i < BestMatches.size(); i++){
         KeyPointsToDraw.push_back(Points[BestMatches[i].trainIdx]);
         if(BestMatches[i].queryIdx == CoinSetPoint){
-        //if (i == 1){
             CoinPoint.push_back(Points[BestMatches[i].trainIdx]);
         }
     }
@@ -296,10 +305,11 @@ void DrawGraphics(cv::Mat OutImage){
     int length = 5;
     std::string scoreText = "Score: " + std::to_string(score);
 
+    //Creates the aim-lines
     cv::line(OutImage, Point(centerX-length, centerY-length), Point(centerX+length, centerY+length), Scalar(255, 0, 0), 2);
     cv::line(OutImage, Point(centerX-length, centerY+length), Point(centerX+length, centerY-length), Scalar(255, 0, 0), 2);
+    //Writes the score at the bottom left
     cv::putText(OutImage, scoreText, Point(10, OutImage.rows-2), FONT_HERSHEY_TRIPLEX, 1, Scalar(0, 0, 0), 2, true);
-
 
     cv::imshow("WithCoinPoint", OutImage);
 }
@@ -328,8 +338,8 @@ bool checkForScore(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint){
 
 }
 
-bool timingTracker(int duration){
-    int randomNumber = rand() % 10 + 10; //random number between 10 and 20
+bool timingTracker(long duration){
+    int randomNumber = rand() % 10 + 5; //random number between 10 and 15
 
     if(duration >= randomNumber){
         return true;
