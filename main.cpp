@@ -22,14 +22,15 @@ using namespace std;
 std::vector<cv::KeyPoint> MakePoint(cv::Mat image, cv::Ptr<cv::Feature2D> detector, int maxFeatures);
 std::vector<cv::DMatch> FindBestMatches(std::vector<std::vector<cv::DMatch>> matches, std::vector<cv::KeyPoint> ReferencePoints, float ratio);
 void FindPointsToDraw(std::vector<cv::DMatch> BestMatches, std::vector<cv::KeyPoint> Points, cv::Mat image, bool isRed);
-void drawCoin(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint, bool isRed);
+void drawCoin(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint, bool isRed, float scale);
 void DrawGraphics(cv::Mat OutImage);
 bool checkForScore(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint, bool isRed);
 bool timingTracker(long duration);
 std::vector<cv::KeyPoint> findPointsFromBestSquare(std::vector<cv::KeyPoint> Points, cv::Mat image);
+std::vector<float> MeanVarOfKeypoints(std::vector<cv::KeyPoint> KeyPoints);
 
 
-int maxFeatures = 40;
+int maxFeatures = 400;
 cv::Mat CoinPictureGold = cv::imread("../coin.jpeg", cv::IMREAD_UNCHANGED);//original pic of gold coin
 cv::Mat CoinPictureRed = cv::imread("../redCoin.jpg", cv::IMREAD_UNCHANGED);//original pic of red coin
 cv::Mat CoinPictureScaledGold; //scaled pic of Gold coin
@@ -37,6 +38,8 @@ cv::Mat CoinPictureScaledRed; //scaled pic of Red coin
 float scaleFactor = 0.20;
 int score = 0;
 int flag = 0;
+std::vector<float> ReferenceMeanVar;
+float ReferanceScale;
 
 using timer = std::chrono::high_resolution_clock;
 
@@ -52,14 +55,13 @@ int main() {
     cv::Mat ReferenceImage;
     std::vector<cv::KeyPoint> ReferencePoints;
     cv::Mat ReferenceFeatures;
-    int CoinPoint;
     bool isRed;
 
     auto lastEvent = timer::now();
 
 
     cv::resize(CoinPictureGold, CoinPictureScaledGold, Size(), scaleFactor, scaleFactor, cv::INTER_LANCZOS4);
-    cv::resize(CoinPictureRed, CoinPictureScaledRed, Size(), scaleFactor*1.8, scaleFactor*1.8, cv::INTER_LANCZOS4);
+    cv::resize(CoinPictureRed, CoinPictureScaledRed, Size(), scaleFactor*1.7, scaleFactor*1.7, cv::INTER_LANCZOS4);
 
 
 
@@ -75,10 +77,6 @@ int main() {
     input_stream >> frame;
     frame.copyTo(image);
 
-
-    cv::Mat vis_img;
-
-
     while (true) {
         input_stream >> frame;
         frame.copyTo(image);
@@ -93,12 +91,11 @@ int main() {
         BruteForceDetector->compute(GrayImage, Points, CurrentFeatures);
 
         if(ReferenceFeatures.empty()){
-            cv::Mat OutImage = image.clone();
             //cv::drawKeypoints(image, Points, OutImage, cv::Scalar(0,255,0));
             //cv::imshow("TheAwsomestAugmentedRealityGame", OutImage);
             //std::vector< cv::Point2f > 	point_ind,
             //cv::KeyPoint::convert(Points, point_ind);
-            DrawGraphics(OutImage);
+            DrawGraphics(image);
 
         }
         else{
@@ -109,7 +106,7 @@ int main() {
             // current and reference features have to be the same size!!
             BruteForceMatcher.knnMatch(ReferenceFeatures, CurrentFeatures, matches, numberOfN);
             //BruteForceMatcher.knnMatch(CurrentFeatures, ReferenceFeatures, matches2, numberOfN);
-            float ratio = 0.7;
+            float ratio = 0.5;
 
             // show the current matches between ref.img and current image frame
             std::vector<cv::DMatch> BestMatches = FindBestMatches(matches, ReferencePoints, ratio);
@@ -119,7 +116,7 @@ int main() {
         }
 
         // Trigger detection and saving when space is pressed
-        int key = cv::waitKey(30);
+        int key = cv::waitKey(15);
 
         auto timing = std::chrono::duration_cast<std::chrono::seconds>(timer::now() - lastEvent);
         bool event = timingTracker(timing.count());
@@ -127,11 +124,13 @@ int main() {
         if (key == ' ' || event){
             cout << "New coinpoint set." << endl;
             lastEvent = timer::now();
-            ReferencePoints = findPointsFromBestSquare(MakePoint(GrayImage, detector, maxFeatures/3), GrayImage);
+            ReferencePoints = findPointsFromBestSquare(MakePoint(GrayImage, detector, maxFeatures), GrayImage);
             image.copyTo(ReferenceImage);
             BruteForceDetector->compute(GrayImage, ReferencePoints, ReferenceFeatures);
             int redProb = 30;//percentage of coins being red
             int randomNumber = rand() % 100;
+            ReferenceMeanVar = MeanVarOfKeypoints(ReferencePoints);
+            ReferanceScale = 1;
             if (randomNumber <  redProb ){
                 isRed = true;
             }
@@ -144,6 +143,7 @@ int main() {
             ReferenceImage = cv::Mat();
             ReferencePoints.clear();
             ReferenceFeatures = cv::Mat();
+            ReferenceMeanVar = std::vector<float>();
             flag = 0;
         }
         else if (key >= 0){
@@ -219,7 +219,8 @@ void FindPointsToDraw(std::vector<cv::DMatch> BestMatches, std::vector<cv::KeyPo
     std::vector<cv::KeyPoint> KeyPointsToDraw;
     std::vector<cv::KeyPoint> CoinPoint;
     cv::Mat OutImage;
-    image.copyTo(OutImage);
+    float increment = 0.05;
+
 
     // imgIdx is not used in this case
     // trainIdx should correspond to the current img
@@ -227,64 +228,78 @@ void FindPointsToDraw(std::vector<cv::DMatch> BestMatches, std::vector<cv::KeyPo
     // the indexes of queryIdx and trainIdx are matching, so first match in trainIdx(current img) is also first in queryIdx(reference img)
 
     //Average x and y cordinates of the matches we have. To determine where to place the coin
-    int avgx = 0;
-    int avgy = 0;
-    if(!Points.empty()) {
+
+    if(!Points.empty() && !BestMatches.empty()) {
         CoinPoint.push_back(Points[0]);
 
         for (size_t i = 0; i < BestMatches.size(); i++) {
             KeyPointsToDraw.push_back(Points[BestMatches[i].trainIdx]);
-            avgx += Points[BestMatches[i].trainIdx].pt.x;
-            avgy += Points[BestMatches[i].trainIdx].pt.y;
         }
-        if (!BestMatches.empty()) {
-            CoinPoint[0].pt.x = floor(avgx / BestMatches.size());
-            CoinPoint[0].pt.y = floor(avgy / BestMatches.size());
-            cv::drawKeypoints(image, KeyPointsToDraw, OutImage, cv::Scalar(0, 255, 0));
-        }
+        std::vector<float> MeanVar = MeanVarOfKeypoints(KeyPointsToDraw);
 
-        if (BestMatches.size() > 2 && !CoinPoint.empty()) {
-            drawCoin(OutImage, CoinPoint, isRed);
+        CoinPoint[0].pt.x = MeanVar[0];
+        CoinPoint[0].pt.y = MeanVar[1];
+        cv::drawKeypoints(image, KeyPointsToDraw, OutImage, cv::Scalar(0, 255, 0));
+
+        if (BestMatches.size() > 10 && !CoinPoint.empty()) {
+            if(MeanVar[2]>ReferenceMeanVar[2]){
+                ReferanceScale += increment;
+            }
+            else if(MeanVar[2]<ReferenceMeanVar[2]){
+                ReferanceScale -= increment;
+            }
+            ReferenceMeanVar[2] = MeanVar[2];
+
+            drawCoin(OutImage, CoinPoint, isRed, ReferanceScale);
         }
     }
     else{
+        image.copyTo(OutImage);
         DrawGraphics(OutImage);
     }
 
 }
 
 
-void drawCoin(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint, bool isRed){
+void drawCoin(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint, bool isRed, float scale){
 
-    cv::Mat OutImage = image.clone();//TODO migth be unnecesary
+
     float x, y;
+    cv::Mat CoinPicture;
     cv::Mat CoinPictureScaled;
     if(isRed){
-        CoinPictureScaled = CoinPictureScaledRed;
+        CoinPicture = CoinPictureScaledRed;
     }
     else{
-        CoinPictureScaled = CoinPictureScaledGold;
+        CoinPicture = CoinPictureScaledGold;
     }
 
-    if(!CoinPoint.empty() && !checkForScore(OutImage, CoinPoint, isRed)) {
+    if(!CoinPoint.empty() && !checkForScore(image, CoinPoint, isRed)) {
+        cv::resize(CoinPicture, CoinPictureScaled, Size(), scale, scale, cv::INTER_LANCZOS4);
         x = CoinPoint[0].pt.x;
         y = CoinPoint[0].pt.y;
         if ((image.rows > (x + (CoinPictureScaled.rows / 2))) && (x - (CoinPictureScaled.rows / 2) > 0) &&
             (image.cols > (y + (CoinPictureScaled.cols / 2))) && (y - (CoinPictureScaled.cols / 2) > 0)) {
 
+
+            //cv::Mat insertImage(image, Rect((x - (CoinPictureScaled.rows / 2)), (y - (CoinPictureScaled.cols / 2)), CoinPictureScaled.rows, CoinPictureScaled.cols));
+            //CoinPictureScaled.copyTo(insertImage);
             for (unsigned int j = 0; j < CoinPictureScaled.cols; j++) {
                 for (unsigned int i = 0; i < CoinPictureScaled.rows; i++) {
                     Vec3b color = CoinPictureScaled.at<Vec3b>(Point(i, j));
                     if ((color[0] <= 249) && (color[1] <= 249) && (color[2] <= 249)) {
-                        OutImage.at<Vec3b>(Point(i + x - (floor(CoinPictureScaled.rows / 2) - 1),
+                        image.at<Vec3b>(Point(i + x - (floor(CoinPictureScaled.rows / 2) - 1),
                                                  j + y - (floor(CoinPictureScaled.cols / 2) - 1))) = color;
                         //TODO make sure this is entirely inside the image
                     }
                 }
             }
         }
+        DrawGraphics(image);
     }
-    DrawGraphics(OutImage);
+    else{
+        DrawGraphics(image);
+    }
     //cv::imshow("TheAwsomestAugmentedRealityGame_noCoinPoint", OutImage);
 }
 
@@ -307,15 +322,14 @@ void DrawGraphics(cv::Mat OutImage){
 
 bool checkForScore(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint, bool isRed){
 
-    cv::Mat OutImage = image.clone();//TODO migth be unnecesary
     float x, y;
     int slack = 10;
 
     if(!CoinPoint.empty()){
         x = CoinPoint[0].pt.x;
         y = CoinPoint[0].pt.y;
-        int centerX = floor(OutImage.cols/2);
-        int centerY = floor(OutImage.rows/2);
+        int centerX = floor(image.cols/2);
+        int centerY = floor(image.rows/2);
         if(((centerX > x-slack) && (centerX < x+slack)) && ((centerY > y-slack) && (centerY < y+slack))){
             if(isRed){
                 score = score - 5;
@@ -332,9 +346,8 @@ bool checkForScore(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint, bool isRe
 }
 
 bool timingTracker(long duration){
-    int timer = 10;
 
-    if(duration >= timer){
+    if(duration >= 30){
         return true;
     }
     else{
@@ -345,7 +358,7 @@ bool timingTracker(long duration){
 
 
 std::vector<cv::KeyPoint> findPointsFromBestSquare(std::vector<cv::KeyPoint> Points, cv::Mat image){
-    int gridSize = 7;
+    int gridSize = 5;
     int row = floor(image.rows/gridSize);
     int col = floor(image.cols/gridSize);
 
@@ -376,4 +389,28 @@ std::vector<cv::KeyPoint> findPointsFromBestSquare(std::vector<cv::KeyPoint> Poi
 
     }
     return largest;
+}
+
+std::vector<float> MeanVarOfKeypoints(std::vector<cv::KeyPoint> KeyPoints){
+    std::vector<float> MeanVar(3);
+
+    int avgx = 0;
+    int avgy = 0;
+    std::vector<float> variance;
+
+    for (size_t i = 0; i < KeyPoints.size(); i++) {
+        avgx += KeyPoints[i].pt.x;
+        avgy += KeyPoints[i].pt.y;
+    }
+    MeanVar[0] = avgx / KeyPoints.size();
+    MeanVar[1] = avgy / KeyPoints.size();
+    for (size_t i = 0; i < KeyPoints.size(); i++) {
+        variance.push_back(pow((KeyPoints[i].pt.x - MeanVar[0]), 2) + pow((KeyPoints[i].pt.y - MeanVar[1]), 2));
+    }
+    std::sort(variance.begin(), variance.end());
+
+    MeanVar[2] = variance[floor(variance.size()/2)];
+
+
+    return MeanVar;
 }
