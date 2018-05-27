@@ -8,14 +8,6 @@
 #include <string>
 
 
-//TODO LIST:
-// Make sure it doesent crash if it had many features, but loses them all
-// Report
-// Comment everything/while cleaning
-// Add more coins
-// nærmere, distict features, template matching
-//
-
 using namespace cv;
 using namespace std;
 
@@ -47,7 +39,7 @@ using timer = std::chrono::high_resolution_clock;
 
 
 int main() {
-    cv::VideoCapture input_stream(0);
+    cv::VideoCapture input_stream(1);
     cv::Ptr<cv::Feature2D> detector = cv::xfeatures2d::SURF::create();
         cv::Ptr<cv::Feature2D> BruteForceDetector = cv::xfeatures2d::SURF::create();
     cv::BFMatcher BruteForceMatcher{BruteForceDetector->defaultNorm()};
@@ -74,6 +66,7 @@ int main() {
 
     cv::Mat frame;
     cv::Mat image;
+    cv::Mat vis_img;
     input_stream >> frame;
     frame.copyTo(image);
 
@@ -103,7 +96,7 @@ int main() {
             //std::vector<std::vector<cv::DMatch>> matches2;
 
             int numberOfN = 2;
-            // current and reference features have to be the same size!!
+            //Current and reference features have to be the same size!!
             BruteForceMatcher.knnMatch(ReferenceFeatures, CurrentFeatures, matches, numberOfN);
             //BruteForceMatcher.knnMatch(CurrentFeatures, ReferenceFeatures, matches2, numberOfN);
             float ratio = 0.5;
@@ -111,12 +104,13 @@ int main() {
             // show the current matches between ref.img and current image frame
             std::vector<cv::DMatch> BestMatches = FindBestMatches(matches, ReferencePoints, ratio);
             FindPointsToDraw(BestMatches, Points, image, isRed);
-            //cv::drawMatches(ReferenceImage, ReferencePoints, image, Points, BestMatches, vis_img);
+            cv::drawMatches(ReferenceImage, ReferencePoints, image, Points, BestMatches, vis_img);
+            imshow("Feature matching", vis_img);
 
         }
 
         // Trigger detection and saving when space is pressed
-        int key = cv::waitKey(15);
+        int key = cv::waitKey(5);
 
         auto timing = std::chrono::duration_cast<std::chrono::seconds>(timer::now() - lastEvent);
         bool event = timingTracker(timing.count());
@@ -127,16 +121,19 @@ int main() {
             ReferencePoints = findPointsFromBestSquare(MakePoint(GrayImage, detector, maxFeatures), GrayImage);
             image.copyTo(ReferenceImage);
             BruteForceDetector->compute(GrayImage, ReferencePoints, ReferenceFeatures);
-            int redProb = 30;//percentage of coins being red
             int randomNumber = rand() % 100;
             ReferenceMeanVar = MeanVarOfKeypoints(ReferencePoints);
             ReferanceScale = 1;
-            if (randomNumber <  redProb ){
+            if (randomNumber <  30 ){
                 isRed = true;
             }
             else{
                 isRed = false;
             }
+
+            cv::Mat OutImage;
+            cv::drawKeypoints(image, ReferencePoints, OutImage, cv::Scalar(0,255,0));
+            cv::imshow("The Referance Points", OutImage);
         }
         else if ( key == 'r' || flag == 1){
             lastEvent = timer::now();
@@ -201,7 +198,6 @@ std::vector<cv::DMatch> FindBestMatches(std::vector<std::vector<cv::DMatch>> mat
         }
     }*/
     //new vector with only the points we have duplicates of.
-    //TODO if speed is an issue, rewrite this double loop
     /*for(size_t i = 0;i< BestMatches.size() ;i++) {
         for (size_t j = 0; j < BestMatches2.size(); j++) {
             if ((ReferencePoints[BestMatches[i].queryIdx].pt.x == ReferencePoints[BestMatches2[j].trainIdx].pt.x) &&
@@ -219,8 +215,7 @@ void FindPointsToDraw(std::vector<cv::DMatch> BestMatches, std::vector<cv::KeyPo
     std::vector<cv::KeyPoint> KeyPointsToDraw;
     std::vector<cv::KeyPoint> CoinPoint;
     cv::Mat OutImage;
-    float increment = 0.05;
-
+    float increment = 0.1;
 
     // imgIdx is not used in this case
     // trainIdx should correspond to the current img
@@ -240,12 +235,13 @@ void FindPointsToDraw(std::vector<cv::DMatch> BestMatches, std::vector<cv::KeyPo
         CoinPoint[0].pt.x = MeanVar[0];
         CoinPoint[0].pt.y = MeanVar[1];
         cv::drawKeypoints(image, KeyPointsToDraw, OutImage, cv::Scalar(0, 255, 0));
+        //image.copyTo(OutImage);
 
-        if (BestMatches.size() > 10 && !CoinPoint.empty()) {
-            if(MeanVar[2]>ReferenceMeanVar[2]){
+        if (BestMatches.size() > 5 && !CoinPoint.empty()) {
+            if(MeanVar[2]>1.1*ReferenceMeanVar[2]){
                 ReferanceScale += increment;
             }
-            else if(MeanVar[2]<ReferenceMeanVar[2]){
+            else if(1.1*MeanVar[2]<ReferenceMeanVar[2]){
                 ReferanceScale -= increment;
             }
             ReferenceMeanVar[2] = MeanVar[2];
@@ -304,7 +300,7 @@ void drawCoin(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint, bool isRed, fl
 }
 
 void DrawGraphics(cv::Mat OutImage){
-    //Draws the X-sigth at the middle of the OutImage
+    //Draws the X-sight at the middle of the OutImage
 
     int centerX = floor(OutImage.cols/2);
     int centerY = floor(OutImage.rows/2);
@@ -347,7 +343,7 @@ bool checkForScore(cv::Mat image, std::vector<cv::KeyPoint> CoinPoint, bool isRe
 
 bool timingTracker(long duration){
 
-    if(duration >= 30){
+    if(duration >= 15){
         return true;
     }
     else{
