@@ -237,7 +237,7 @@ void FindPointsToDraw(std::vector<cv::DMatch> BestMatches, std::vector<cv::KeyPo
         cv::drawKeypoints(image, KeyPointsToDraw, OutImage, cv::Scalar(0, 255, 0));
         //image.copyTo(OutImage);
 
-        if (BestMatches.size() > 5 && !CoinPoint.empty()) {
+        if (BestMatches.size() > 7 && !CoinPoint.empty()) {
             if(MeanVar[2]>1.1*ReferenceMeanVar[2]){
                 ReferanceScale += increment;
             }
